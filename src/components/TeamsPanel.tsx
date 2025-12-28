@@ -1,0 +1,61 @@
+import { Team } from '../types';
+
+type Props = {
+  teams: Team[];
+  onTeamsChange: (teams: Team[]) => void;
+  disabled?: boolean;
+};
+
+const TeamsPanel = ({ teams, onTeamsChange, disabled }: Props) => {
+  const updateTeam = (id: string, changes: Partial<Team>) => {
+    onTeamsChange(
+      teams.map((team) => (team.id === id ? { ...team, ...changes } : team))
+    );
+  };
+
+  return (
+    <div className="stack teams-scroll">
+      {!teams.length && <div className="empty">Load a spreadsheet to manage teams.</div>}
+      <div className="team-cards">
+        {teams.map((team) => (
+          <div className="match" key={team.id}>
+            <div className="actions" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
+              <input
+                type="text"
+                value={team.name}
+                onChange={(e) => updateTeam(team.id, { name: e.target.value })}
+                disabled={disabled}
+                style={{ flex: 1 }}
+              />
+              <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <input
+                  type="checkbox"
+                  checked={team.priority}
+                  onChange={(e) => updateTeam(team.id, { priority: e.target.checked })}
+                  disabled={disabled}
+                />
+                Priority
+              </label>
+            </div>
+            <label className="status" style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              Blackout Dates (YYYY-MM-DD comma-separated)
+              <input
+                type="text"
+                value={team.blackoutDates.join(', ')}
+                onChange={(e) =>
+                  updateTeam(
+                    team.id,
+                    { blackoutDates: e.target.value.split(',').map((d) => d.trim()).filter(Boolean) }
+                  )
+                }
+                disabled={disabled}
+              />
+            </label>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+};
+
+export default TeamsPanel;
