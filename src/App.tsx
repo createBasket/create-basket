@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { format } from 'date-fns';
 import UploadPanel from './components/UploadPanel';
 import BracketEditor from './components/BracketEditor';
 import CalendarPanel from './components/CalendarPanel';
@@ -55,7 +56,8 @@ const App = () => {
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = `bracket-${Date.now()}.json`;
+    const timestamp = format(new Date(), 'yyyy-MM-dd--HH-mm-ss');
+    link.download = `bracket--${timestamp}.json`;
     link.click();
     URL.revokeObjectURL(url);
     setStatus('Downloaded bracket JSON to your device.');
