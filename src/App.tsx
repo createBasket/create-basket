@@ -6,7 +6,6 @@ import SaveLoadPanel from './components/SaveLoadPanel';
 import TeamsPanel from './components/TeamsPanel';
 import { Bracket, Match, ScheduledMatch, Team } from './types';
 import { generateBracket, propagateWinner } from './utils/generateBracket';
-import { saveToDrive, loadFromDrive } from './utils/drive';
 import { v4 as uuid } from 'uuid';
 
 const App = () => {
@@ -81,41 +80,6 @@ const App = () => {
     }
   };
 
-  const handleDriveSave = () => {
-    if (!teams.length || !matches.length) {
-      setStatus('Nothing to save.');
-      return;
-    }
-    const payload: Bracket = {
-      teams,
-      matches,
-      scheduled,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
-    };
-    saveToDrive(payload)
-      .then((id) => setStatus(`Saved to Drive (file ${id}).`))
-      .catch((err) =>
-        setStatus(err instanceof Error ? err.message : 'Drive save failed')
-      );
-  };
-
-  const handleDriveLoad = () => {
-    loadFromDrive()
-      .then((data: Bracket) => {
-        if (!data.teams || !data.matches) {
-          throw new Error('Invalid Drive file.');
-        }
-        setTeams(data.teams);
-        setMatches(data.matches);
-        setScheduled(data.scheduled || []);
-        setStatus('Loaded bracket from Drive.');
-      })
-      .catch((err) =>
-        setStatus(err instanceof Error ? err.message : 'Drive load failed')
-      );
-  };
-
   const handleReset = () => {
     setTeams([]);
     setMatches([]);
@@ -176,11 +140,10 @@ const App = () => {
   return (
     <div className="page">
       <header className="stack">
-        <div className="badge">React + AWS-ready</div>
+        <div className="badge">React</div>
         <h1>Basketball Bracket + Scheduler</h1>
         <p style={{ maxWidth: 720, color: '#3c3f57' }}>
-          Upload a spreadsheet to generate a bracket. Advance winners, view availability, and save/load via local files
-          or hook up Google Drive.
+          Upload a spreadsheet to generate a bracket. Advance winners, view availability, and save/load via local files.
         </p>
         <div className="actions">
           <div className="badge">{activeTeamsText}</div>
@@ -200,8 +163,6 @@ const App = () => {
           <SaveLoadPanel
             onDownload={handleDownload}
             onUpload={handleUpload}
-            onDriveSave={handleDriveSave}
-            onDriveLoad={handleDriveLoad}
             disabled={busy}
             hasData={!!teams.length && !!matches.length}
           />

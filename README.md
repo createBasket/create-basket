@@ -1,6 +1,6 @@
 # Basketball Bracket Builder
 
-React + TypeScript front-end for uploading team spreadsheets, generating brackets, marking winners, and saving/loading via local files (with optional Google Drive hookup).
+React + TypeScript front-end for uploading team spreadsheets, generating brackets, marking winners, and saving/loading via local files.
 
 ## Local Development
 1) Install Node 18+ and pnpm/npm.
@@ -10,7 +10,6 @@ React + TypeScript front-end for uploading team spreadsheets, generating bracket
 ## Saving/Loading
 - **Download JSON**: saves the current bracket to a local `.json` file.
 - **Load from file**: load a previously downloaded `.json`.
-- **Google Drive**: set `VITE_GDRIVE_CLIENT_ID` (OAuth client ID from Google Cloud with Drive API enabled). Uses Drive `drive.file` scope to save/load the bracket JSON. First save creates a file; subsequent saves update it; load pulls the same file back. Tokens are stored in `localStorage`.
 
 ## Data Types
 ```ts
