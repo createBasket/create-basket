@@ -6,6 +6,7 @@ import SaveLoadPanel from './components/SaveLoadPanel';
 import TeamsPanel from './components/TeamsPanel';
 import { Bracket, Match, ScheduledMatch, Team } from './types';
 import { generateBracket, propagateWinner } from './utils/generateBracket';
+import { saveToDrive, loadFromDrive } from './utils/drive';
 import { v4 as uuid } from 'uuid';
 
 const App = () => {
@@ -81,11 +82,38 @@ const App = () => {
   };
 
   const handleDriveSave = () => {
-    setStatus('Google Drive save: wire this button to Drive Picker / REST API.');
+    if (!teams.length || !matches.length) {
+      setStatus('Nothing to save.');
+      return;
+    }
+    const payload: Bracket = {
+      teams,
+      matches,
+      scheduled,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+    saveToDrive(payload)
+      .then((id) => setStatus(`Saved to Drive (file ${id}).`))
+      .catch((err) =>
+        setStatus(err instanceof Error ? err.message : 'Drive save failed')
+      );
   };
 
   const handleDriveLoad = () => {
-    setStatus('Google Drive load: wire this button to Drive Picker / REST API.');
+    loadFromDrive()
+      .then((data: Bracket) => {
+        if (!data.teams || !data.matches) {
+          throw new Error('Invalid Drive file.');
+        }
+        setTeams(data.teams);
+        setMatches(data.matches);
+        setScheduled(data.scheduled || []);
+        setStatus('Loaded bracket from Drive.');
+      })
+      .catch((err) =>
+        setStatus(err instanceof Error ? err.message : 'Drive load failed')
+      );
   };
 
   const handleReset = () => {
@@ -102,16 +130,6 @@ const App = () => {
     if (scheduled.some((s) => pairKey(s.teamAId, s.teamBId) === pairKey(teamAId, teamBId))) {
       setStatus('This pairing is already scheduled.');
       return false;
-    }
-
-    // Round order: ensure this date is after any earlier round dates
-    const prior = scheduled.filter((s) => s.round < round);
-    if (prior.length) {
-      const latestPrior = prior.reduce((max, cur) => (cur.date > max ? cur.date : max), prior[0].date);
-      if (date <= latestPrior) {
-        setStatus(`Round ${round} games must be after ${latestPrior}.`);
-        return false;
-      }
     }
 
     const entry: ScheduledMatch = { id: uuid(), date, teamAId, teamBId, round };

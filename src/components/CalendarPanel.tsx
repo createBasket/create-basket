@@ -78,6 +78,11 @@ const CalendarPanel = ({ teams, matches, scheduled, onSchedule, onCancel }: Prop
     if (ok) setDragging(null);
   };
 
+  const isBlockedForDrag = (date: string) => {
+    if (!dragging || !dragging.teamAId || !dragging.teamBId) return false;
+    return !isAvailable(dragging.teamAId, date) || !isAvailable(dragging.teamBId, date);
+  };
+
   const getMatchParts = (s: ScheduledMatch) => {
     const a = teamLookup.get(s.teamAId);
     const b = teamLookup.get(s.teamBId);
@@ -136,7 +141,7 @@ const CalendarPanel = ({ teams, matches, scheduled, onSchedule, onCancel }: Prop
         {days.map((day) => (
           <div
             key={day.date}
-            className={`calendar-cell ${day.inMonth ? '' : 'faded'}`}
+            className={`calendar-cell ${day.inMonth ? '' : 'faded'} ${isBlockedForDrag(day.date) ? 'blocked' : ''}`}
             onDragOver={(e) => e.preventDefault()}
             onDrop={() => handleDrop(day.date)}
           >

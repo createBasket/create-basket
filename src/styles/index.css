@@ -248,6 +248,10 @@ button {
   background: #f7f8ff;
 }
 
+.calendar-cell.blocked {
+  opacity: 0.4;
+}
+
 .scheduled-list {
   display: flex;
   flex-direction: column;
