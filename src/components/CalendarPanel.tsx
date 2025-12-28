@@ -11,7 +11,7 @@ import {
   startOfWeek
 } from 'date-fns';
 import { Match, ScheduledMatch, Team } from '../types';
-import { useEffect, useRef } from 'react';
+import { useRef } from 'react';
 
 type Props = {
   teams: Team[];
@@ -86,19 +86,9 @@ const CalendarPanel = ({ teams, matches, scheduled, onSchedule, onCancel }: Prop
     return !isAvailable(dragging.teamAId, date) || !isAvailable(dragging.teamBId, date);
   };
 
-  useEffect(() => {
-    const onClick = (e: MouseEvent) => {
-      if (pickerRef.current && !pickerRef.current.contains(e.target as Node)) {
-        setShowPicker(false);
-      }
-    };
-    document.addEventListener('mousedown', onClick);
-    return () => document.removeEventListener('mousedown', onClick);
-  }, []);
-
   const handleManualSet = (year: number, month: number) => {
     setCursor(startOfMonth(new Date(year, month)));
-    setShowPicker(false);
+    setShowPicker(true);
   };
 
   const getMatchParts = (s: ScheduledMatch) => {
