@@ -11,6 +11,7 @@ import {
   startOfWeek
 } from 'date-fns';
 import { Match, ScheduledMatch, Team } from '../types';
+import { useEffect, useRef } from 'react';
 
 type Props = {
   teams: Team[];
@@ -30,6 +31,8 @@ const pairKey = (a: string, b: string) => [a, b].sort().join('::');
 const CalendarPanel = ({ teams, matches, scheduled, onSchedule, onCancel }: Props) => {
   const [cursor, setCursor] = useState(() => startOfMonth(new Date()));
   const [dragging, setDragging] = useState<Match | null>(null);
+  const [showPicker, setShowPicker] = useState(false);
+  const pickerRef = useRef<HTMLDivElement | null>(null);
 
   const isAvailable = (teamId: string, date: string) => {
     const t = teams.find((team) => team.id === teamId);
@@ -83,6 +86,21 @@ const CalendarPanel = ({ teams, matches, scheduled, onSchedule, onCancel }: Prop
     return !isAvailable(dragging.teamAId, date) || !isAvailable(dragging.teamBId, date);
   };
 
+  useEffect(() => {
+    const onClick = (e: MouseEvent) => {
+      if (pickerRef.current && !pickerRef.current.contains(e.target as Node)) {
+        setShowPicker(false);
+      }
+    };
+    document.addEventListener('mousedown', onClick);
+    return () => document.removeEventListener('mousedown', onClick);
+  }, []);
+
+  const handleManualSet = (year: number, month: number) => {
+    setCursor(startOfMonth(new Date(year, month)));
+    setShowPicker(false);
+  };
+
   const getMatchParts = (s: ScheduledMatch) => {
     const a = teamLookup.get(s.teamAId);
     const b = teamLookup.get(s.teamBId);
@@ -100,13 +118,46 @@ const CalendarPanel = ({ teams, matches, scheduled, onSchedule, onCancel }: Prop
           <button className="btn secondary" onClick={() => setCursor((c) => addMonths(c, -1))}>
             Prev
           </button>
-          <div className="badge">{format(cursor, 'MMMM yyyy')}</div>
+          <button className="btn secondary" onClick={() => setShowPicker((s) => !s)}>
+            {format(cursor, 'MMMM yyyy')}
+          </button>
           <button className="btn secondary" onClick={() => setCursor((c) => addMonths(c, 1))}>
             Next
           </button>
         </div>
         <div className="status">Drag a matchup onto a date to schedule. Cancel to reschedule.</div>
       </div>
+
+      {showPicker && (
+        <div className="picker" ref={pickerRef}>
+          <div className="picker-row">
+            <label>Month</label>
+            <select
+              value={cursor.getMonth()}
+              onChange={(e) => handleManualSet(cursor.getFullYear(), Number(e.target.value))}
+            >
+              {Array.from({ length: 12 }, (_, i) => (
+                <option key={i} value={i}>
+                  {format(new Date(2000, i, 1), 'MMMM')}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="picker-row">
+            <label>Year</label>
+            <input
+              type="number"
+              value={cursor.getFullYear()}
+              onChange={(e) => handleManualSet(Number(e.target.value), cursor.getMonth())}
+            />
+          </div>
+          <div className="actions">
+            <button className="btn secondary" onClick={() => setShowPicker(false)}>
+              Close
+            </button>
+          </div>
+        </div>
+      )}
 
       <div className="drag-source">
         <div className="status">Unscheduled matchups</div>
