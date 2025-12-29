@@ -38,15 +38,44 @@ const normalizeRow = (row: Record<string, unknown>): Team | null => {
 
 const parseCsv = async (file: File): Promise<Team[]> => {
   const text = await file.text();
-  const result = Papa.parse<Record<string, unknown>>(text, {
-    header: true,
-    skipEmptyLines: true,
-    transformHeader: (header) => header.trim()
+  const result = Papa.parse<string[]>(text, {
+    header: false,
+    skipEmptyLines: true
   });
-  if (result.errors.length) {
+
+  if (result.errors.length && !result.data.length) {
     throw new Error(result.errors[0].message || 'Failed to parse CSV');
   }
-  return result.data.map(normalizeRow).filter((t): t is Team => Boolean(t));
+
+  const rows = result.data as string[][];
+  if (!rows.length) return [];
+
+  const headers = rows[0].map((h) => h.trim());
+  const body = rows.slice(1).map((row) => {
+    // Merge any extra columns into the last (blackout) field so commas inside dates don't break parsing.
+    if (row.length > headers.length && headers.length >= 3) {
+      row[2] = row.slice(2).join(',');
+      row.length = headers.length;
+    }
+    const record: Record<string, unknown> = {};
+    headers.forEach((header, idx) => {
+      record[header] = row[idx];
+    });
+    return record;
+  });
+
+  // Fallback if no headers: assume Team, Priority, Blackout Dates
+  const headerKnown = headers.length >= 2 && headers.some((h) => /team/i.test(h));
+  const normalizedBody =
+    headerKnown && headers.length
+      ? body
+      : rows.map((row) => ({
+          Team: row[0],
+          Priority: row[1],
+          'Blackout Dates': row.slice(2).join(',')
+        }));
+
+  return normalizedBody.map(normalizeRow).filter((t): t is Team => Boolean(t));
 };
 
 const parseXlsx = async (file: File): Promise<Team[]> => {

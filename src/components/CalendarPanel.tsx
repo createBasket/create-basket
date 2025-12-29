@@ -51,26 +51,44 @@ const CalendarPanel = ({ teams, matches, scheduled, onSchedule, onCancel }: Prop
     }));
   }, [cursor]);
 
-  const scheduledSet = useMemo(
-    () => new Set(scheduled.map((s) => pairKey(s.teamAId, s.teamBId))),
-    [scheduled]
-  );
+  const matchLookup = useMemo(() => {
+    const map = new Map<string, Match>();
+    matches.forEach((m) => {
+      if (m.teamAId && m.teamBId) {
+        const key = `${pairKey(m.teamAId, m.teamBId)}::${m.round}`;
+        map.set(key, m);
+      }
+    });
+    return map;
+  }, [matches]);
+
+  const scheduledSet = useMemo(() => {
+    const set = new Set<string>();
+    scheduled.forEach((s) => {
+      const key = `${pairKey(s.teamAId, s.teamBId)}::${s.round}`;
+      set.add(key);
+    });
+    return set;
+  }, [scheduled]);
 
   const availableMatches = useMemo(() => {
-    const list = matches.filter((m) => m.teamAId && m.teamBId) as Match[];
+    const list = matches.filter((m) => m.teamAId && m.teamBId && !m.winnerId) as Match[];
     return list.filter(
-      (m) => !scheduledSet.has(pairKey(m.teamAId as string, m.teamBId as string))
+      (m) => !scheduledSet.has(`${pairKey(m.teamAId as string, m.teamBId as string)}::${m.round}`)
     );
   }, [matches, scheduledSet]);
 
   const scheduledByDate = useMemo(() => {
     const map: Record<string, ScheduledMatch[]> = {};
     scheduled.forEach((s) => {
+      const key = `${pairKey(s.teamAId, s.teamBId)}::${s.round}`;
+      const match = matchLookup.get(key);
+      if (match?.winnerId) return; // hide completed matches from scheduler
       if (!map[s.date]) map[s.date] = [];
       map[s.date].push(s);
     });
     return map;
-  }, [scheduled]);
+  }, [scheduled, matchLookup]);
 
   const teamLookup = useMemo(() => new Map(teams.map((t) => [t.id, t])), [teams]);
 

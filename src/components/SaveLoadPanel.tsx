@@ -28,7 +28,7 @@ const SaveLoadPanel = ({ onDownload, onUpload, disabled, hasData }: Props) => {
         <input
           ref={inputRef}
           type="file"
-          accept="application/json"
+          accept=".json,application/json"
           style={{ display: 'none' }}
           onChange={(e) => {
             const file = e.target.files?.[0];

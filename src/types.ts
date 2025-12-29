@@ -30,6 +30,7 @@ export type Bracket = {
   teams: Team[];
   matches: Match[];
   scheduled?: ScheduledMatch[];
+  consolationMatches?: Match[];
   createdAt: string;
   updatedAt: string;
 };

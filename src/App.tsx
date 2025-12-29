@@ -1,20 +1,22 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { format } from 'date-fns';
 import UploadPanel from './components/UploadPanel';
 import BracketEditor from './components/BracketEditor';
 import CalendarPanel from './components/CalendarPanel';
-import SaveLoadPanel from './components/SaveLoadPanel';
 import TeamsPanel from './components/TeamsPanel';
+import PlacingsPanel from './components/PlacingsPanel';
 import { Bracket, Match, ScheduledMatch, Team } from './types';
-import { generateBracket, propagateWinner } from './utils/generateBracket';
+import { generateBracket, propagateWinner, reseedMatches } from './utils/generateBracket';
 import { v4 as uuid } from 'uuid';
 
 const App = () => {
   const [teams, setTeams] = useState<Team[]>([]);
   const [matches, setMatches] = useState<Match[]>([]);
+  const [consolationMatches, setConsolationMatches] = useState<Match[]>([]);
   const [status, setStatus] = useState<string>('Waiting for input');
   const [busy, setBusy] = useState(false);
   const [scheduled, setScheduled] = useState<ScheduledMatch[]>([]);
+  const [baseline, setBaseline] = useState<Bracket | null>(null);
 
   const roundCount = useMemo(
     () => (matches.length ? Math.max(...matches.map((m) => m.round)) : 0),
@@ -27,17 +29,46 @@ const App = () => {
     setMatches(generated);
     setStatus(`Loaded ${parsed.length} team${parsed.length === 1 ? '' : 's'}. Bracket ready.`);
     setScheduled([]);
+    setConsolationMatches([]);
+    setBaseline({
+      teams: parsed,
+      matches: generated,
+      consolationMatches: [],
+      scheduled: [],
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    });
   };
 
   const handleBracketLoaded = (data: Bracket) => {
     setTeams(data.teams);
     setMatches(data.matches);
+    setConsolationMatches(data.consolationMatches || []);
     setScheduled(data.scheduled || []);
     setStatus('Bracket JSON loaded.');
+    setBaseline({
+      ...data,
+      consolationMatches: data.consolationMatches || [],
+      scheduled: data.scheduled || []
+    });
   };
 
   const handleWinner = (matchId: string, winnerId: string) => {
-    setMatches((prev) => propagateWinner(prev, matchId, winnerId));
+    setMatches((prev) => {
+      const target = prev.find((m) => m.id === matchId);
+      if (!target) return prev;
+      const updated = prev.map((m) => (m.id === matchId ? { ...m, winnerId } : m));
+      return reseedMatches(updated, teams);
+    });
+  };
+
+  const handleConsolationWinner = (matchId: string, winnerId: string) => {
+    setConsolationMatches((prev) => {
+      const target = prev.find((m) => m.id === matchId);
+      if (!target) return prev;
+      const updated = prev.map((m) => (m.id === matchId ? { ...m, winnerId } : m));
+      return reseedMatches(updated, teams);
+    });
   };
 
   const handleDownload = () => {
@@ -48,6 +79,7 @@ const App = () => {
     const payload: Bracket = {
       teams,
       matches,
+      consolationMatches,
       scheduled,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
@@ -67,14 +99,24 @@ const App = () => {
     setBusy(true);
     try {
       const text = await file.text();
-      const parsed = JSON.parse(text) as Bracket;
-      if (!parsed.teams || !parsed.matches) {
-        throw new Error('Invalid bracket file.');
+      const raw = JSON.parse(text) as Partial<Bracket>;
+      if (!Array.isArray(raw?.teams) || !Array.isArray(raw?.matches)) {
+        throw new Error('Invalid bracket file. Expecting "teams" and "matches" arrays.');
       }
-      setTeams(parsed.teams);
-      setMatches(parsed.matches);
-      setScheduled(parsed.scheduled || []);
+      const normalized: Bracket = {
+        teams: raw.teams,
+        matches: raw.matches,
+        scheduled: raw.scheduled || [],
+        consolationMatches: raw.consolationMatches || [],
+        createdAt: raw.createdAt || new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      };
+      setTeams(normalized.teams);
+      setMatches(normalized.matches);
+      setScheduled(normalized.scheduled || []);
+      setConsolationMatches(normalized.consolationMatches || []);
       setStatus(`Loaded bracket from ${file.name}.`);
+      setBaseline(normalized);
     } catch (err) {
       setStatus(err instanceof Error ? err.message : 'Failed to load file');
     } finally {
@@ -83,10 +125,46 @@ const App = () => {
   };
 
   const handleReset = () => {
-    setTeams([]);
-    setMatches([]);
-    setStatus('Reset. Upload a spreadsheet or load a saved file to begin.');
+    if (baseline) {
+      setTeams(baseline.teams);
+      setMatches(baseline.matches);
+      setScheduled(baseline.scheduled || []);
+      setConsolationMatches(baseline.consolationMatches || []);
+      setStatus('Reset to last uploaded bracket.');
+    } else {
+      setTeams([]);
+      setMatches([]);
+      setConsolationMatches([]);
+      setStatus('Reset. Upload a spreadsheet or load a saved file to begin.');
+      setScheduled([]);
+    }
+  };
+
+  const regenerateBracket = (nextTeams: Team[], message?: string) => {
+    const regenerated = generateBracket(nextTeams);
+    setTeams(nextTeams);
+    setMatches(regenerated);
+    setConsolationMatches([]);
     setScheduled([]);
+    setStatus(message || `Bracket refreshed for ${nextTeams.length} team${nextTeams.length === 1 ? '' : 's'}.`);
+  };
+
+  const handleAddTeam = () => {
+    const newTeam: Team = {
+      id: uuid(),
+      name: `Team ${teams.length + 1}`,
+      priority: false,
+      blackoutDates: [],
+      scheduledGames: [],
+      gameWon: false
+    };
+    regenerateBracket([newTeam, ...teams], `Added ${newTeam.name}. Bracket refreshed for ${teams.length + 1} teams.`);
+  };
+
+  const handleRemoveTeam = (id: string) => {
+    const team = teams.find((t) => t.id === id);
+    const updated = teams.filter((t) => t.id !== id);
+    regenerateBracket(updated, `Removed ${team?.name || 'team'}. Bracket refreshed for ${updated.length} teams.`);
   };
 
   const pairKey = (a: string, b: string) => [a, b].sort().join('::');
@@ -134,10 +212,42 @@ const App = () => {
   const [expanded, setExpanded] = useState<Record<string, boolean>>({
     teams: true,
     bracket: true,
-    availability: false
+    availability: false,
+    consolation: true
   });
 
   const toggle = (key: string) => setExpanded((prev) => ({ ...prev, [key]: !prev[key] }));
+
+  useEffect(() => {
+    const firstRoundMatches = matches.filter((m) => m.round === 1);
+
+    const losers = firstRoundMatches
+      .map((match) => {
+        if (!match.teamAId || !match.teamBId || !match.winnerId) return undefined;
+        return match.winnerId === match.teamAId ? match.teamBId : match.teamAId;
+      })
+      .filter(Boolean) as string[];
+
+    if (!losers.length) {
+      setConsolationMatches([]);
+      return;
+    }
+
+    const loserTeams = losers
+      .map((id) => teams.find((team) => team.id === id))
+      .filter(Boolean) as Team[];
+
+    setConsolationMatches((prev) => {
+      const prevIds = new Set(
+        prev.flatMap((m) => [m.teamAId, m.teamBId]).filter((id): id is string => !!id)
+      );
+      const loserIds = new Set(losers);
+      const sameSet =
+        prevIds.size === loserIds.size && [...prevIds].every((id) => loserIds.has(id));
+      if (prev.length && sameSet) return prev;
+      return generateBracket(loserTeams);
+    });
+  }, [matches, teams]);
 
   return (
     <div className="page">
@@ -160,13 +270,9 @@ const App = () => {
             onTeamsParsed={handleTeamsParsed}
             onClear={handleReset}
             onBracketLoaded={handleBracketLoaded}
-            disabled={busy}
-          />
-          <SaveLoadPanel
             onDownload={handleDownload}
-            onUpload={handleUpload}
+            canDownload={!!teams.length && !!matches.length}
             disabled={busy}
-            hasData={!!teams.length && !!matches.length}
           />
         </div>
 
@@ -178,17 +284,58 @@ const App = () => {
                 {expanded.teams ? 'Collapse' : 'Expand'}
               </button>
             </div>
-            {expanded.teams && <TeamsPanel teams={teams} onTeamsChange={setTeams} disabled={busy} />}
+            {expanded.teams && (
+              <TeamsPanel
+                teams={teams}
+                onTeamsChange={setTeams}
+                onAddTeam={handleAddTeam}
+                onRemoveTeam={handleRemoveTeam}
+                disabled={busy}
+              />
+            )}
           </div>
           <div className="panel stack">
             <div className="actions" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
-              <h2>Bracket</h2>
+              <h2>Championship</h2>
               <button className="btn secondary" onClick={() => toggle('bracket')}>
                 {expanded.bracket ? 'Collapse' : 'Expand'}
               </button>
             </div>
-            {expanded.bracket && <BracketEditor matches={matches} teams={teams} onWinner={handleWinner} />}
+            {expanded.bracket && (
+              <BracketEditor
+                matches={matches}
+                teams={teams}
+                onWinner={handleWinner}
+                description="Click a team to advance toward the championship."
+                emptyMessage="Upload a spreadsheet or load a start code to generate matches."
+              />
+            )}
           </div>
+          <div className="panel stack">
+            <div className="actions" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
+              <h2>Consolation</h2>
+              <button className="btn secondary" onClick={() => toggle('consolation')}>
+                {expanded.consolation ? 'Collapse' : 'Expand'}
+              </button>
+            </div>
+            {expanded.consolation && (
+              <BracketEditor
+                matches={consolationMatches}
+                teams={teams}
+                onWinner={handleConsolationWinner}
+                description="First-round losers play for consolation standings."
+                emptyMessage="Complete all first-round winners to seed the consolation bracket."
+                title="Consolation Bracket"
+              />
+            )}
+          </div>
+          <PlacingsPanel matches={matches} teams={teams} title="Championship Places" />
+          <PlacingsPanel
+            matches={consolationMatches}
+            teams={teams}
+            title="Consolation Places"
+            subtitle="Finish consolation rounds to show 1st–4th."
+          />
           <div className="panel stack">
             <div className="actions" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
               <h2>Availability</h2>
