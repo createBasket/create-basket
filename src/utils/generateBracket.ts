@@ -1,6 +1,9 @@
 import { v4 as uuid } from 'uuid';
 import { Match, Team } from '../types';
 
+export const PASS_ID = '__PASS__';
+const isPass = (id?: string) => id === PASS_ID;
+
 const normalizeName = (value: string) =>
   value
     .replace(/\(.*?\)/g, '')
@@ -13,11 +16,15 @@ const nextPowerOfTwo = (value: number) => (value <= 1 ? 1 : 2 ** Math.ceil(Math.
 const findNextMatch = (matches: Match[], round: number, slot: number) =>
   matches.find((m) => m.round === round + 1 && m.slot === Math.floor(slot / 2));
 
-const cascadeClear = (matches: Match[], match: Match) => {
+const clearDownstream = (matches: Match[], match: Match, clearSlot: boolean) => {
   const next = findNextMatch(matches, match.round, match.slot);
   if (!next) return;
+  const targetKey = match.slot % 2 === 0 ? 'teamAId' : 'teamBId';
+  if (clearSlot) {
+    next[targetKey] = undefined;
+  }
   next.winnerId = undefined;
-  cascadeClear(matches, next);
+  clearDownstream(matches, next, true);
 };
 
 const chunk = (arr: number[], size: number) => {
@@ -26,10 +33,63 @@ const chunk = (arr: number[], size: number) => {
   return res;
 };
 
+// Prevent double-bye paths by ensuring each first-round pair has at most one bye.
+const distributeByes = (seeded: Array<Team | undefined>) => {
+  const pairs = chunk(
+    Array.from({ length: seeded.length }, (_, i) => i),
+    2
+  );
+
+  const findDonorPair = () => pairs.find(([a, b]) => seeded[a] && seeded[b]);
+
+  pairs.forEach(([aIdx, bIdx]) => {
+    if (seeded[aIdx] || seeded[bIdx]) return;
+    const donor = findDonorPair();
+    if (!donor) return;
+    const [dA, dB] = donor;
+    const donorIdx = dA;
+    const moved = seeded[donorIdx];
+    seeded[donorIdx] = undefined;
+    seeded[aIdx] = moved;
+  });
+
+  return seeded;
+};
+
+// Drop top rounds only if there are zero matches; keep future rounds visible even if empty/bye.
+const trimTrailingRounds = (matches: Match[]): Match[] => {
+  let trimmed = [...matches];
+  // eslint-disable-next-line no-constant-condition
+  while (true) {
+    const maxRound = Math.max(...trimmed.map((m) => m.round));
+    const roundMatches = trimmed.filter((m) => m.round === maxRound);
+    if (!roundMatches.length) break;
+    break;
+  }
+  return trimmed;
+};
+
+// Standard bracket seeding order that keeps top seeds (priorities) apart until late rounds.
+const buildSeedOrder = (size: number) => {
+  let order = [1];
+  while (order.length < size) {
+    const mirrorBase = order.length * 2 + 1;
+    const mirrored = order.map((seed) => mirrorBase - seed);
+    const next: number[] = [];
+    order.forEach((seed, idx) => {
+      if (next.length < size) next.push(seed);
+      if (next.length < size) next.push(mirrored[idx]);
+    });
+    order = next;
+  }
+  return order.slice(0, size).map((seed) => seed - 1);
+};
+
 const seedTeams = (sortedTeams: Team[], bracketSize: number): (Team | undefined)[] => {
-  const seeded = Array<Team | undefined>(bracketSize).fill(undefined);
+  let seeded = Array<Team | undefined>(bracketSize).fill(undefined);
   const positions = Array.from({ length: bracketSize }, (_, i) => i);
   const pairGroups = chunk(positions, 2);
+  const seedOrder = buildSeedOrder(bracketSize);
   const baseKey = (team?: Team) => (team ? normalizeName(team.name) : '');
 
   const slotConflicts = (team: Team, slot: number) => {
@@ -55,6 +115,8 @@ const seedTeams = (sortedTeams: Team[], bracketSize: number): (Team | undefined)
         const opponent = opponentIdx !== undefined ? seeded[opponentIdx] : undefined;
         const hasPriorityConflict = conflicts.priorityConflict;
         const hasSameSchoolConflict = conflicts.sameSchoolConflict;
+        const seedRank = seedOrder.indexOf(slot);
+        const seedBias = seedRank === -1 ? seedOrder.length : seedRank;
         return {
           slot,
           ...conflicts,
@@ -66,7 +128,8 @@ const seedTeams = (sortedTeams: Team[], bracketSize: number): (Team | undefined)
                   hasPriorityConflict ? 4 : 0, // avoid priority vs priority
                   hasSameSchoolConflict ? 2 : 0, // avoid same school
                   opponent ? 0 : 3, // avoid bye
-                  opponent?.priority ? 2 : 0 // prefer non-priority opponent
+                  opponent?.priority ? 2 : 0, // prefer non-priority opponent
+                  seedBias // spread priorities across the bracket
                 ]
               : [
                   hasSameSchoolConflict ? 3 : 0, // avoid same school strongly
@@ -274,6 +337,9 @@ const seedTeams = (sortedTeams: Team[], bracketSize: number): (Team | undefined)
     // repeat until stable
   }
 
+  // Final pass: avoid bye-vs-bye pairs so no team rides multiple byes.
+  seeded = distributeByes(seeded);
+
   const swapPriorityByes = () => {
     const priorityByePairs = pairs.filter(([aIdx, bIdx]) => {
       const a = seeded[aIdx];
@@ -375,20 +441,32 @@ const seedTeams = (sortedTeams: Team[], bracketSize: number): (Team | undefined)
 
 export const generateBracket = (teams: Team[]): Match[] => {
   if (!teams.length) return [];
-  const sortedTeams = [...teams].sort((a, b) => {
+
+  // Deduplicate teams by normalized name to avoid double-seeding the same team.
+  const seen = new Set<string>();
+  const uniqueTeams = teams.filter((team) => {
+    const key = normalizeName(team.name);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+  const deDupedTeams = uniqueTeams.length ? uniqueTeams : teams;
+
+  const sortedTeams = [...deDupedTeams].sort((a, b) => {
     if (a.priority === b.priority) return a.name.localeCompare(b.name);
     return a.priority ? -1 : 1;
   });
 
+  // Use a full power-of-two bracket to keep pairing deterministic, then trim bye-only top rounds.
   const bracketSize = nextPowerOfTwo(sortedTeams.length);
   const seededTeams = seedTeams(sortedTeams, bracketSize);
 
-  const totalRounds = Math.log2(bracketSize);
-  const matches: Match[] = [];
   let teamsInRound = bracketSize;
+  const matches: Match[] = [];
+  let round = 1;
 
-  for (let round = 1; round <= totalRounds; round += 1) {
-    const matchCount = teamsInRound / 2;
+  while (teamsInRound > 1) {
+    const matchCount = Math.ceil(teamsInRound / 2);
     for (let slot = 0; slot < matchCount; slot += 1) {
       const index = slot * 2;
       const teamA = round === 1 ? seededTeams[index] : undefined;
@@ -401,22 +479,47 @@ export const generateBracket = (teams: Team[]): Match[] => {
         teamBId: teamB?.id
       });
     }
-    teamsInRound /= 2;
+    teamsInRound = Math.ceil(teamsInRound / 2);
+    round += 1;
   }
 
-  return propagateAutoAdvances(matches);
+  return trimTrailingRounds(settlePassChains(propagateAutoAdvances(matches)));
 };
 
 const propagateAutoAdvances = (matches: Match[]): Match[] => {
   let updated = [...matches];
   let changed = false;
 
+  const feederHasTeams = (match: Match, side: 'A' | 'B') => {
+    const feederSlot = match.slot * 2 + (side === 'A' ? 0 : 1);
+    const feeder = updated.find((m) => m.round === match.round - 1 && m.slot === feederSlot);
+    if (!feeder) return false;
+    return !!(feeder.teamAId || feeder.teamBId);
+  };
+
   updated.forEach((match) => {
-    if (match.teamAId && !match.teamBId && !match.winnerId) {
-      updated = propagateWinner(updated, match.id, match.teamAId, true);
+    const bothEmpty = !match.teamAId && !match.teamBId;
+    const solo =
+      (match.teamAId && !match.teamBId && match.teamAId) || (!match.teamAId && match.teamBId && match.teamBId);
+    const passAuto =
+      (match.teamAId === PASS_ID && match.teamBId && match.winnerId !== match.teamBId && !isPass(match.teamBId)
+        ? match.teamBId
+        : undefined) ||
+      (match.teamBId === PASS_ID && match.teamAId && match.winnerId !== match.teamAId && !isPass(match.teamAId)
+        ? match.teamAId
+        : undefined);
+    const missingSide: 'A' | 'B' | null = match.teamAId && !match.teamBId ? 'B' : !match.teamAId && match.teamBId ? 'A' : null;
+    const waitingFeeder = missingSide ? feederHasTeams(match, missingSide) : false;
+    const feedersPresent = feederHasTeams(match, 'A') || feederHasTeams(match, 'B');
+
+    if (bothEmpty && !match.winnerId && !feedersPresent) {
+      updated = propagateWinner(updated, match.id, PASS_ID, true, false);
       changed = true;
-    } else if (!match.teamAId && match.teamBId && !match.winnerId) {
-      updated = propagateWinner(updated, match.id, match.teamBId, true);
+    } else if (solo && !match.winnerId && !waitingFeeder) {
+      updated = propagateWinner(updated, match.id, solo, true, false);
+      changed = true;
+    } else if (passAuto && !match.winnerId && !waitingFeeder) {
+      updated = propagateWinner(updated, match.id, passAuto, true, false);
       changed = true;
     }
   });
@@ -427,39 +530,113 @@ const propagateAutoAdvances = (matches: Match[]): Match[] => {
 export const propagateWinner = (
   matches: Match[],
   matchId: string,
-  winnerId: string,
-  auto = false
+  winnerId?: string,
+  auto = false,
+  sweep = true
 ): Match[] => {
+  const original = matches;
+  let mutated = false;
   const updated = matches.map((m) => ({ ...m }));
   const match = updated.find((m) => m.id === matchId);
   if (!match) return matches;
 
-  match.winnerId = winnerId;
+  const feederHasTeamsForParent = (parent: Match, targetKey: 'teamAId' | 'teamBId') => {
+    const childSlot = parent.slot * 2 + (targetKey === 'teamAId' ? 0 : 1);
+    const feeder = updated.find((m) => m.round === parent.round - 1 && m.slot === childSlot);
+    if (!feeder) return false;
+    const hasTeam = (id?: string) => !!id && !isPass(id);
+    return hasTeam(feeder.teamAId) || hasTeam(feeder.teamBId);
+  };
+
+  const maybeAutoAdvance = (current: Match) => {
+    const next = findNextMatch(updated, current.round, current.slot);
+    if (!next) return;
+    const targetKey = current.slot % 2 === 0 ? 'teamAId' : 'teamBId';
+    const opponentKey = targetKey === 'teamAId' ? 'teamBId' : 'teamAId';
+    const opponent = next[opponentKey];
+    const waitingOpponent = feederHasTeamsForParent(next, opponentKey);
+    const opponentIsPass = isPass(opponent);
+    if (current.winnerId && (opponent === undefined || opponentIsPass) && !waitingOpponent) {
+      propagateWinner(updated, next.id, current.winnerId, true, false);
+    }
+  };
 
   const next = findNextMatch(updated, match.round, match.slot);
-  if (!next) return updated;
+
+  // Clearing a winner: remove downstream placements and winners.
+  if (!winnerId) {
+    if (match.winnerId !== undefined) {
+      mutated = true;
+      match.winnerId = undefined;
+      if (next) {
+        clearDownstream(updated, match, true);
+      }
+    }
+    return mutated ? updated : matches;
+  }
+
+  if (match.winnerId !== winnerId) {
+    mutated = true;
+    match.winnerId = winnerId;
+  }
+
+  if (!next) return mutated ? updated : matches;
 
   const targetKey = match.slot % 2 === 0 ? 'teamAId' : 'teamBId';
   const previousValue = next[targetKey];
-  next[targetKey] = winnerId;
+  if (previousValue !== winnerId) {
+    mutated = true;
+    next[targetKey] = winnerId;
+  }
 
   const opponentKey = targetKey === 'teamAId' ? 'teamBId' : 'teamAId';
   const opponent = next[opponentKey];
 
+  // New winner changes downstream brackets: keep placement but clear later winners.
   if (previousValue !== winnerId) {
-    next.winnerId = undefined;
-    cascadeClear(updated, next);
+    clearDownstream(updated, match, false);
   }
 
   if (next.winnerId && next.winnerId !== next.teamAId && next.winnerId !== next.teamBId) {
     next.winnerId = undefined;
-    cascadeClear(updated, next);
+    clearDownstream(updated, next, false);
+    mutated = true;
   }
 
   if (!auto && opponent && opponent === winnerId) {
     next.winnerId = undefined;
+    clearDownstream(updated, next, false);
+    mutated = true;
   }
 
+  maybeAutoAdvance(match);
+
+  const result = sweep ? settlePassChains(propagateAutoAdvances(updated)) : updated;
+  if (!mutated && result === updated) {
+    return matches;
+  }
+  return result;
+};
+
+const settlePassChains = (matches: Match[]): Match[] => {
+  let updated = matches;
+  let iterations = 0;
+  const maxIterations = matches.length * 4 || 8;
+
+  while (iterations < maxIterations) {
+    iterations += 1;
+    let changed = false;
+    for (const m of updated) {
+      if (!m.winnerId) continue;
+      const res = propagateWinner(updated, m.id, m.winnerId, true, false);
+      if (res !== updated) {
+        updated = res;
+        changed = true;
+        break; // restart scan
+      }
+    }
+    if (!changed) break;
+  }
   return updated;
 };
 

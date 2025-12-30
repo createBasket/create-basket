@@ -17,8 +17,37 @@ type Props = {
   teams: Team[];
   matches: Match[];
   scheduled: ScheduledMatch[];
-  onSchedule: (date: string, teamAId: string, teamBId: string, round: number) => boolean;
+  onSchedule: (date: string, teamAId: string, teamBId: string, round: number, startTime?: string) => boolean;
+  onUpdateTime: (id: string, startTime: string) => void;
   onCancel: (id: string) => void;
+};
+
+const buildIcs = (scheduled: ScheduledMatch[], teamLookup: Map<string, Team>): string => {
+  const lines: string[] = [
+    'BEGIN:VCALENDAR',
+    'VERSION:2.0',
+    'PRODID:-//create-basket//scheduler//EN',
+    'CALSCALE:GREGORIAN'
+  ];
+
+  scheduled.forEach((s) => {
+    const startDate = s.startTime ? `${s.date.replace(/-/g, '')}T${s.startTime.replace(':', '')}00` : s.date.replace(/-/g, '');
+    const allDay = !s.startTime;
+    const summary = `${teamLookup.get(s.teamAId)?.name || 'Team A'} vs ${teamLookup.get(s.teamBId)?.name || 'Team B'} (R${s.round})`;
+    lines.push('BEGIN:VEVENT');
+    lines.push(`UID:${s.id}@create-basket`);
+    lines.push(`DTSTAMP:${format(new Date(), 'yyyyMMdd\'T\'HHmmss')}`);
+    if (allDay) {
+      lines.push(`DTSTART;VALUE=DATE:${startDate}`);
+    } else {
+      lines.push(`DTSTART:${startDate}`);
+    }
+    lines.push(`SUMMARY:${summary}`);
+    lines.push('END:VEVENT');
+  });
+
+  lines.push('END:VCALENDAR');
+  return lines.join('\r\n');
 };
 
 type DayCell = {
@@ -28,9 +57,10 @@ type DayCell = {
 
 const pairKey = (a: string, b: string) => [a, b].sort().join('::');
 
-const CalendarPanel = ({ teams, matches, scheduled, onSchedule, onCancel }: Props) => {
+const CalendarPanel = ({ teams, matches, scheduled, onSchedule, onUpdateTime, onCancel }: Props) => {
   const [cursor, setCursor] = useState(() => startOfMonth(new Date()));
-  const [dragging, setDragging] = useState<Match | null>(null);
+  const [selectedMatch, setSelectedMatch] = useState<Match | null>(null);
+  const [selectedTime, setSelectedTime] = useState('18:00');
   const [showPicker, setShowPicker] = useState(false);
   const pickerRef = useRef<HTMLDivElement | null>(null);
 
@@ -92,16 +122,16 @@ const CalendarPanel = ({ teams, matches, scheduled, onSchedule, onCancel }: Prop
 
   const teamLookup = useMemo(() => new Map(teams.map((t) => [t.id, t])), [teams]);
 
-  const handleDrop = (date: string) => {
-    if (!dragging || !dragging.teamAId || !dragging.teamBId) return;
-    if (!isAvailable(dragging.teamAId, date) || !isAvailable(dragging.teamBId, date)) return;
-    const ok = onSchedule(date, dragging.teamAId, dragging.teamBId, dragging.round);
-    if (ok) setDragging(null);
+  const handleDateSelect = (date: string) => {
+    if (!selectedMatch || !selectedMatch.teamAId || !selectedMatch.teamBId) return;
+    if (!isAvailable(selectedMatch.teamAId, date) || !isAvailable(selectedMatch.teamBId, date)) return;
+    const ok = onSchedule(date, selectedMatch.teamAId, selectedMatch.teamBId, selectedMatch.round, selectedTime);
+    if (ok) setSelectedMatch(null);
   };
 
-  const isBlockedForDrag = (date: string) => {
-    if (!dragging || !dragging.teamAId || !dragging.teamBId) return false;
-    return !isAvailable(dragging.teamAId, date) || !isAvailable(dragging.teamBId, date);
+  const isBlockedForSelection = (date: string) => {
+    if (!selectedMatch || !selectedMatch.teamAId || !selectedMatch.teamBId) return false;
+    return !isAvailable(selectedMatch.teamAId, date) || !isAvailable(selectedMatch.teamBId, date);
   };
 
   const handleManualSet = (year: number, month: number) => {
@@ -133,7 +163,24 @@ const CalendarPanel = ({ teams, matches, scheduled, onSchedule, onCancel }: Prop
             Next
           </button>
         </div>
-        <div className="status">Drag a matchup onto a date to schedule. Cancel to reschedule.</div>
+        <div className="status">
+          Select a matchup, then click an available date to schedule. Red X means blackout for the selected matchup.
+        </div>
+        <button
+          className="btn secondary"
+          onClick={() => {
+            const content = buildIcs(scheduled, teamLookup);
+            const blob = new Blob([content], { type: 'text/calendar' });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = `bracket-schedule-${format(new Date(), 'yyyyMMdd-HHmmss')}.ics`;
+            link.click();
+            URL.revokeObjectURL(url);
+          }}
+        >
+          Export .ics
+        </button>
       </div>
 
       {showPicker && (
@@ -169,6 +216,15 @@ const CalendarPanel = ({ teams, matches, scheduled, onSchedule, onCancel }: Prop
 
       <div className="drag-source">
         <div className="status">Unscheduled matchups</div>
+        <div className="actions" style={{ alignItems: 'center', gap: 8 }}>
+          <label style={{ fontWeight: 600 }}>Start time</label>
+          <input
+            type="time"
+            value={selectedTime}
+            onChange={(e) => setSelectedTime(e.target.value)}
+            style={{ maxWidth: 140 }}
+          />
+        </div>
         <div className="matchups">
           {availableMatches.length === 0 && <div className="empty">All matchups scheduled.</div>}
           {availableMatches.map((m) => {
@@ -178,11 +234,9 @@ const CalendarPanel = ({ teams, matches, scheduled, onSchedule, onCancel }: Prop
             return (
               <div
                 key={m.id}
-                className="pill matchup draggable"
-                draggable
-                onDragStart={() => setDragging(m)}
-                onDragEnd={() => setDragging(null)}
-                title="Drag to a date"
+                className={`pill matchup ${selectedMatch?.id === m.id ? 'selected' : ''}`}
+                onClick={() => setSelectedMatch((prev) => (prev?.id === m.id ? null : m))}
+                title="Click to select"
               >
                 {label}
               </div>
@@ -200,11 +254,11 @@ const CalendarPanel = ({ teams, matches, scheduled, onSchedule, onCancel }: Prop
         {days.map((day) => (
           <div
             key={day.date}
-            className={`calendar-cell ${day.inMonth ? '' : 'faded'} ${isBlockedForDrag(day.date) ? 'blocked' : ''}`}
-            onDragOver={(e) => e.preventDefault()}
-            onDrop={() => handleDrop(day.date)}
+            className={`calendar-cell ${day.inMonth ? '' : 'faded'} ${isBlockedForSelection(day.date) ? 'blocked' : ''}`}
+            onClick={() => handleDateSelect(day.date)}
           >
             <div className="calendar-date">{format(parseISO(day.date), 'd')}</div>
+            {isBlockedForSelection(day.date) && <div className="blackout-x">✕</div>}
             <div className="scheduled-list">
               {(scheduledByDate[day.date] || []).map((s) => {
                 const parts = getMatchParts(s);
@@ -214,6 +268,14 @@ const CalendarPanel = ({ teams, matches, scheduled, onSchedule, onCancel }: Prop
                       <div>{parts.line1}</div>
                       <div>{parts.line2}</div>
                       <div>{parts.line3}</div>
+                      <div className="time-edit">
+                        <label>Time</label>
+                        <input
+                          type="time"
+                          value={s.startTime || ''}
+                          onChange={(e) => onUpdateTime(s.id, e.target.value)}
+                        />
+                      </div>
                     </div>
                     <button className="btn secondary small" onClick={() => onCancel(s.id)}>
                       Cancel

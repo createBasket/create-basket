@@ -13,6 +13,7 @@ export type ScheduledMatch = {
   teamAId: string;
   teamBId: string;
   round: number;
+  startTime?: string; // HH:mm (local)
 };
 
 export type Match = {

@@ -6,7 +6,7 @@ import CalendarPanel from './components/CalendarPanel';
 import TeamsPanel from './components/TeamsPanel';
 import PlacingsPanel from './components/PlacingsPanel';
 import { Bracket, Match, ScheduledMatch, Team } from './types';
-import { generateBracket, propagateWinner, reseedMatches } from './utils/generateBracket';
+import { generateBracket, propagateWinner } from './utils/generateBracket';
 import { v4 as uuid } from 'uuid';
 
 const App = () => {
@@ -53,22 +53,12 @@ const App = () => {
     });
   };
 
-  const handleWinner = (matchId: string, winnerId: string) => {
-    setMatches((prev) => {
-      const target = prev.find((m) => m.id === matchId);
-      if (!target) return prev;
-      const updated = prev.map((m) => (m.id === matchId ? { ...m, winnerId } : m));
-      return reseedMatches(updated, teams);
-    });
+  const handleWinner = (matchId: string, winnerId?: string) => {
+    setMatches((prev) => propagateWinner(prev, matchId, winnerId));
   };
 
-  const handleConsolationWinner = (matchId: string, winnerId: string) => {
-    setConsolationMatches((prev) => {
-      const target = prev.find((m) => m.id === matchId);
-      if (!target) return prev;
-      const updated = prev.map((m) => (m.id === matchId ? { ...m, winnerId } : m));
-      return reseedMatches(updated, teams);
-    });
+  const handleConsolationWinner = (matchId: string, winnerId?: string) => {
+    setConsolationMatches((prev) => propagateWinner(prev, matchId, winnerId));
   };
 
   const handleDownload = () => {
@@ -169,20 +159,21 @@ const App = () => {
 
   const pairKey = (a: string, b: string) => [a, b].sort().join('::');
 
-  const scheduleMatch = (date: string, teamAId: string, teamBId: string, round: number) => {
+  const scheduleMatch = (date: string, teamAId: string, teamBId: string, round: number, startTime?: string) => {
     // unique pairing
     if (scheduled.some((s) => pairKey(s.teamAId, s.teamBId) === pairKey(teamAId, teamBId))) {
       setStatus('This pairing is already scheduled.');
       return false;
     }
 
-    const entry: ScheduledMatch = { id: uuid(), date, teamAId, teamBId, round };
+    const entry: ScheduledMatch = { id: uuid(), date, teamAId, teamBId, round, startTime };
     setScheduled((prev) => [...prev, entry]);
     setTeams((prev) => {
       const a = prev.find((t) => t.id === teamAId);
       const b = prev.find((t) => t.id === teamBId);
       if (!a || !b) return prev;
-      const label = `${date}: ${a.name} vs ${b.name} [${entry.id}]`;
+      const timeLabel = startTime ? ` @ ${startTime}` : '';
+      const label = `${date}${timeLabel}: ${a.name} vs ${b.name} [${entry.id}]`;
       const updateTeam = (team: Team) => ({
         ...team,
         scheduledGames: [...(team.scheduledGames || []), label]
@@ -206,6 +197,25 @@ const App = () => {
       }))
     );
     setStatus('Match canceled. Reschedule as needed.');
+  };
+
+  const updateScheduledTime = (id: string, startTime: string) => {
+    setScheduled((prev) =>
+      prev.map((s) => {
+        if (s.id !== id) return s;
+        return { ...s, startTime };
+      })
+    );
+    setTeams((prev) =>
+      prev.map((team) => ({
+        ...team,
+        scheduledGames: (team.scheduledGames || []).map((entry) => {
+          if (!entry.includes(id)) return entry;
+          // replace time segment if present; simplest is to rebuild label
+          return entry.replace(/^\d{4}-\d{2}-\d{2}( @ [0-9:]{4,5})?/, `${entry.slice(0, 10)}${startTime ? ` @ ${startTime}` : ''}`);
+        })
+      }))
+    );
   };
 
   const activeTeamsText = teams.length ? `${teams.length} teams` : 'No teams yet';
@@ -306,6 +316,7 @@ const App = () => {
                 matches={matches}
                 teams={teams}
                 onWinner={handleWinner}
+                direction="right"
                 description="Click a team to advance toward the championship."
                 emptyMessage="Upload a spreadsheet or load a start code to generate matches."
               />
@@ -326,6 +337,7 @@ const App = () => {
                 description="First-round losers play for consolation standings."
                 emptyMessage="Complete all first-round winners to seed the consolation bracket."
                 title="Consolation Bracket"
+                direction="left"
               />
             )}
           </div>
@@ -349,6 +361,7 @@ const App = () => {
                 matches={matches}
                 scheduled={scheduled}
                 onSchedule={scheduleMatch}
+                onUpdateTime={updateScheduledTime}
                 onCancel={cancelMatch}
               />
             )}

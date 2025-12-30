@@ -213,6 +213,117 @@ button {
   font-size: 13px;
 }
 
+.bracket-panel {
+  overflow: auto;
+  max-height: 520px;
+  width: 100%;
+  max-width: 100%;
+}
+
+.bracket-canvas {
+  position: relative;
+  overflow: auto;
+  min-height: 320px;
+  width: 100%;
+  max-width: 100%;
+}
+
+.bracket-canvas.left .bracket-grid,
+.bracket-canvas.left .bracket-lines {
+  direction: rtl;
+}
+
+.bracket-grid {
+  position: relative;
+}
+
+.bracket-lines {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.match-card {
+  position: absolute;
+  background: #fff;
+  border: 1px solid #dfe3ff;
+  border-radius: 10px;
+  box-shadow: 0 4px 12px rgba(31, 35, 72, 0.08);
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-top: 24px; /* make room for top pills */
+  padding-bottom: 12px; /* extra buffer from next game's pills */
+}
+
+.match-card.decided {
+  border-color: #c0d3ff;
+  background: #f8fbff;
+}
+
+.match-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+  color: #5a5f7d;
+}
+
+.match-card select {
+  width: 100%;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid #cfd4f7;
+  font-weight: 600;
+  background: #f8f9ff;
+}
+
+.teams-mini {
+  position: absolute;
+  top: -26px;
+  left: 12px;
+  display: flex;
+  gap: 8px;
+  font-size: 12px;
+  color: #1f2348;
+}
+
+.teams-mini .pill {
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: #f1f2f8;
+  border: 1px solid #e2e5f6;
+  }
+
+.teams-mini .pill.prime {
+  background: #fff5e8;
+  border-color: #ffc47a;
+}
+
+.winner-label {
+  color: #12833f;
+  font-weight: 700;
+}
+
+.badge.subtle {
+  background: #eef1ff;
+  color: #2c2f55;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 .calendar {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
@@ -233,11 +344,28 @@ button {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  position: relative;
 }
 
 .calendar-date {
   font-weight: 700;
   color: #1f2348;
+}
+
+.blackout-x {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  color: #b00020;
+  font-weight: 900;
+  font-size: 20px;
+  pointer-events: none;
+  text-shadow: none;
+}
+
+.matchups .pill.selected {
+  outline: 2px solid #2f5cf7;
+  background: #f0f3ff;
 }
 
 .matchups {
@@ -320,6 +448,19 @@ button {
   display: flex;
   flex-direction: column;
   gap: 2px;
+}
+
+.time-edit {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.time-edit input[type='time'] {
+  padding: 4px 6px;
+  border: 1px solid #cfd4f7;
+  border-radius: 6px;
 }
 
 .picker {
