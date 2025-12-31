@@ -7,6 +7,7 @@ import {
   format,
   isSameMonth,
   parseISO,
+  addHours,
   startOfMonth,
   startOfWeek
 } from 'date-fns';
@@ -31,16 +32,24 @@ const buildIcs = (scheduled: ScheduledMatch[], teamLookup: Map<string, Team>): s
   ];
 
   scheduled.forEach((s) => {
-    const startDate = s.startTime ? `${s.date.replace(/-/g, '')}T${s.startTime.replace(':', '')}00` : s.date.replace(/-/g, '');
     const allDay = !s.startTime;
+    const startDateObj = s.startTime ? parseISO(`${s.date}T${s.startTime}`) : null;
+    const endDateObj = startDateObj ? addHours(startDateObj, 1) : null;
+    const startDateStr = s.startTime
+      ? format(startDateObj as Date, "yyyyMMdd'T'HHmmss")
+      : s.date.replace(/-/g, '');
+    const endDateStr = endDateObj ? format(endDateObj, "yyyyMMdd'T'HHmmss") : undefined;
     const summary = `${teamLookup.get(s.teamAId)?.name || 'Team A'} vs ${teamLookup.get(s.teamBId)?.name || 'Team B'} (R${s.round})`;
     lines.push('BEGIN:VEVENT');
     lines.push(`UID:${s.id}@create-basket`);
-    lines.push(`DTSTAMP:${format(new Date(), 'yyyyMMdd\'T\'HHmmss')}`);
+    lines.push(`DTSTAMP:${format(new Date(), "yyyyMMdd'T'HHmmss")}`);
     if (allDay) {
-      lines.push(`DTSTART;VALUE=DATE:${startDate}`);
+      lines.push(`DTSTART;VALUE=DATE:${startDateStr}`);
+      // All-day events typically omit DTEND or use next day; leave out to avoid same-time issue.
     } else {
-      lines.push(`DTSTART:${startDate}`);
+      lines.push(`DTSTART:${startDateStr}`);
+      if (endDateStr) lines.push(`DTEND:${endDateStr}`);
+      else lines.push('DURATION:PT1H');
     }
     lines.push(`SUMMARY:${summary}`);
     lines.push('END:VEVENT');
