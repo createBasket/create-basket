@@ -13,18 +13,94 @@ const toBoolean = (value: unknown) => {
   return false;
 };
 
-const parseList = (raw: unknown): string[] =>
+const monthIndex = (name: string): number | null => {
+  const months = [
+    'january',
+    'february',
+    'march',
+    'april',
+    'may',
+    'june',
+    'july',
+    'august',
+    'september',
+    'october',
+    'november',
+    'december'
+  ];
+  const idx = months.indexOf(name.toLowerCase());
+  return idx === -1 ? null : idx;
+};
+
+const pad = (n: number) => (n < 10 ? `0${n}` : `${n}`);
+
+const parseTimeToMinutes = (value: string): number | null => {
+  const cleaned = value.trim().toLowerCase();
+  const match = cleaned.match(/(\d{1,2})(?::(\d{2}))?\s*(am|pm)?/);
+  if (!match) return null;
+  let hours = Number(match[1]);
+  const minutes = match[2] ? Number(match[2]) : 0;
+  const meridiem = match[3];
+  if (meridiem === 'pm' && hours < 12) hours += 12;
+  if (meridiem === 'am' && hours === 12) hours = 0;
+  if (hours >= 24 || minutes >= 60) return null;
+  return hours * 60 + minutes;
+};
+
+const normalizeBlackoutEntry = (raw: string): string | null => {
+  const text = raw.trim();
+  if (!text) return null;
+
+  // Already normalized form
+  if (/^\d{4}-\d{2}-\d{2}(:\d{2}(:\d{2})?-\d{2}(:\d{2})?)?$/.test(text)) return text;
+
+  // Try to parse formats like "December 14 2025 12pm - 4pm" or "Sunday December 14th 12pm-4pm"
+  const re = /([a-zA-Z]+)\s+(\d{1,2})(?:st|nd|rd|th)?(?:[ ,]+(\d{4}))?.*?(\d{1,2}(?::\d{2})?\s*(?:am|pm))?\s*[-–]\s*(\d{1,2}(?::\d{2})?\s*(?:am|pm))?/;
+  const m = text.match(re);
+  const currentYear = new Date().getFullYear();
+  if (m) {
+    const monthName = m[1];
+    const day = Number(m[2]);
+    const year = m[3] ? Number(m[3]) : currentYear;
+    const monthIdx = monthIndex(monthName);
+    if (monthIdx !== null) {
+      const dateStr = `${year}-${pad(monthIdx + 1)}-${pad(day)}`;
+      const start = m[4] ? parseTimeToMinutes(m[4]) : null;
+      const end = m[5] ? parseTimeToMinutes(m[5]) : null;
+      if (start !== null && end !== null && end > start) {
+        const startLabel = `${pad(Math.floor(start / 60))}:${pad(start % 60)}`;
+        const endLabel = `${pad(Math.floor(end / 60))}:${pad(end % 60)}`;
+        return `${dateStr}:${startLabel}-${endLabel}`;
+      }
+      return dateStr;
+    }
+  }
+
+  // Fallback: allow raw date parse YYYY-MM-DD
+  const iso = text.match(/(\d{4}-\d{2}-\d{2})/);
+  if (iso) return iso[1];
+
+  return null;
+};
+
+const parseListGeneric = (raw: unknown): string[] =>
   String(raw ?? '')
     .split(',')
-    .map((date) => date.trim())
+    .map((entry) => entry.trim())
     .filter(Boolean);
+
+const parseBlackoutList = (raw: unknown): string[] =>
+  String(raw ?? '')
+    .split(',')
+    .map((date) => normalizeBlackoutEntry(date))
+    .filter((v): v is string => Boolean(v));
 
 const normalizeRow = (row: Record<string, unknown>): Team | null => {
   const name = String(row.Team ?? row.team ?? '').trim();
   if (!name) return null;
   const priority = toBoolean(row.Priority ?? row.priority);
-  const blackoutDates = parseList(row['Blackout Dates'] ?? row.blackout ?? row.blackouts);
-  const scheduledGames = parseList(row['Scheduled Games'] ?? row.scheduled ?? row.games);
+  const blackoutDates = parseBlackoutList(row['Blackout Dates'] ?? row.blackout ?? row.blackouts);
+  const scheduledGames = parseListGeneric(row['Scheduled Games'] ?? row.scheduled ?? row.games);
   const gameWon = toBoolean(row['Game Won'] ?? row.gameWon ?? row.won);
   return {
     id: uuid(),

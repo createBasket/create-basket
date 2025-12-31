@@ -65,6 +65,15 @@ type DayCell = {
 };
 
 const pairKey = (a: string, b: string) => [a, b].sort().join('::');
+const parseTimeToMinutesLocal = (value: string): number | null => {
+  const cleaned = value.trim();
+  const match = cleaned.match(/(\d{1,2}):(\d{2})/);
+  if (!match) return null;
+  const hours = Number(match[1]);
+  const minutes = Number(match[2]);
+  if (hours >= 24 || minutes >= 60) return null;
+  return hours * 60 + minutes;
+};
 
 const CalendarPanel = ({ teams, matches, scheduled, onSchedule, onUpdateTime, onCancel }: Props) => {
   const [cursor, setCursor] = useState(() => startOfMonth(new Date()));
@@ -73,11 +82,57 @@ const CalendarPanel = ({ teams, matches, scheduled, onSchedule, onUpdateTime, on
   const [showPicker, setShowPicker] = useState(false);
   const pickerRef = useRef<HTMLDivElement | null>(null);
 
-  const isAvailable = (teamId: string, date: string) => {
+  const parseRange = (entry: string) => {
+    if (!entry.includes(':')) return { date: entry.trim(), start: null, end: null };
+    const [day, range] = entry.split(':');
+    const [startRaw, endRaw] = range.split('-');
+    const toMinutes = (val?: string | null) => {
+      if (!val) return null;
+      const m = val.match(/(\d{1,2}):?(\d{2})?/);
+      if (!m) return null;
+      const h = Number(m[1]);
+      const min = m[2] ? Number(m[2]) : 0;
+      if (h >= 24 || min >= 60) return null;
+      return h * 60 + min;
+    };
+    return { date: day.trim(), start: toMinutes(startRaw), end: toMinutes(endRaw) };
+  };
+
+  const rangesOverlap = (startA: number, endA: number, startB: number, endB: number) =>
+    Math.max(startA, startB) < Math.min(endA, endB);
+
+  const isAvailable = (teamId: string, date: string, startTime?: string) => {
     const t = teams.find((team) => team.id === teamId);
     if (!t) return false;
-    if (t.blackoutDates.map((d) => d.trim()).includes(date)) return false;
-    if ((t.scheduledGames || []).some((entry) => entry.startsWith(date))) return false;
+    const startMinutes = startTime ? parseTimeToMinutesLocal(startTime) : null;
+    const rangesOverlap = (startA: number, endA: number, startB: number, endB: number) =>
+      startA <= endB && startB <= endA; // inclusive endpoints
+
+    for (const entry of t.blackoutDates) {
+      const { date: d, start, end } = parseRange(entry);
+      if (d !== date) continue;
+      if (start === null || end === null || startMinutes === null) return false; // full-day block or no time provided
+      if (rangesOverlap(start, end, startMinutes, startMinutes + 60)) return false;
+    }
+
+    const parseScheduledEntry = (entry: string) => {
+      const m = entry.match(/^(\d{4}-\d{2}-\d{2})(?:\s*@\s*([0-9]{1,2}:[0-9]{2}))?/);
+      if (!m) return null;
+      const day = m[1];
+      const time = m[2];
+      const mins = time ? parseTimeToMinutesLocal(time) : null;
+      return { day, mins };
+    };
+
+    const hasConflict = (t.scheduledGames || []).some((entry) => {
+      const parsed = parseScheduledEntry(entry);
+      if (!parsed || parsed.day !== date) return false;
+      // if existing entry has no time or current pick has no time, treat as conflict
+      if (parsed.mins === null || startMinutes === null) return true;
+      return rangesOverlap(parsed.mins, parsed.mins + 60, startMinutes, startMinutes + 60);
+    });
+    if (hasConflict) return false;
+
     return true;
   };
 
@@ -133,14 +188,18 @@ const CalendarPanel = ({ teams, matches, scheduled, onSchedule, onUpdateTime, on
 
   const handleDateSelect = (date: string) => {
     if (!selectedMatch || !selectedMatch.teamAId || !selectedMatch.teamBId) return;
-    if (!isAvailable(selectedMatch.teamAId, date) || !isAvailable(selectedMatch.teamBId, date)) return;
+    if (
+      !isAvailable(selectedMatch.teamAId, date, selectedTime) ||
+      !isAvailable(selectedMatch.teamBId, date, selectedTime)
+    )
+      return;
     const ok = onSchedule(date, selectedMatch.teamAId, selectedMatch.teamBId, selectedMatch.round, selectedTime);
     if (ok) setSelectedMatch(null);
   };
 
   const isBlockedForSelection = (date: string) => {
     if (!selectedMatch || !selectedMatch.teamAId || !selectedMatch.teamBId) return false;
-    return !isAvailable(selectedMatch.teamAId, date) || !isAvailable(selectedMatch.teamBId, date);
+    return !isAvailable(selectedMatch.teamAId, date, selectedTime) || !isAvailable(selectedMatch.teamBId, date, selectedTime);
   };
 
   const handleManualSet = (year: number, month: number) => {

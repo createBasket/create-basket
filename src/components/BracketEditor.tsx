@@ -161,8 +161,8 @@ const BracketEditor = ({
                       onChange={(e) => handleWinner(match, e.target.value || undefined)}
                       disabled={!canPick}
                     >
-                      {options.map((option) => (
-                        <option key={option.value || 'empty'} value={option.value}>
+                      {options.map((option, idx) => (
+                        <option key={`${match.id}-${option.value || 'empty'}-${idx}`} value={option.value}>
                           {option.label}
                         </option>
                       ))}

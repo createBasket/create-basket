@@ -2,7 +2,7 @@ export type Team = {
   id: string;
   name: string;
   priority: boolean;
-  blackoutDates: string[]; // ISO strings YYYY-MM-DD
+  blackoutDates: string[]; // ISO day or day+time ranges, e.g. "2025-12-14" or "2025-12-14:12:00-16:00"
   scheduledGames?: string[];
   gameWon?: boolean;
 };

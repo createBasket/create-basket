@@ -442,17 +442,24 @@ const seedTeams = (sortedTeams: Team[], bracketSize: number): (Team | undefined)
 export const generateBracket = (teams: Team[]): Match[] => {
   if (!teams.length) return [];
 
-  // Deduplicate teams by normalized name to avoid double-seeding the same team.
-  const seen = new Set<string>();
+  // Deduplicate by exact-ish name to avoid double-seeding identical entries (but keep variants like (Green)/(Black)).
+  const normalizeExact = (name: string) =>
+    name
+      .replace(/[\u200b-\u200d\u2060\ufeff]/g, '') // strip zero-width/invisible chars
+      .replace(/[\x00-\x1f\x7f]/g, '') // control chars
+      .replace(/\u00a0/g, ' ') // normalize non-breaking spaces
+      .replace(/\s+/g, ' ') // collapse whitespace
+      .trim()
+      .toLowerCase();
+  const seenNames = new Set<string>();
   const uniqueTeams = teams.filter((team) => {
-    const key = normalizeName(team.name);
-    if (seen.has(key)) return false;
-    seen.add(key);
+    const key = normalizeExact(team.name);
+    if (seenNames.has(key)) return false;
+    seenNames.add(key);
     return true;
   });
-  const deDupedTeams = uniqueTeams.length ? uniqueTeams : teams;
 
-  const sortedTeams = [...deDupedTeams].sort((a, b) => {
+  const sortedTeams = [...uniqueTeams].sort((a, b) => {
     if (a.priority === b.priority) return a.name.localeCompare(b.name);
     return a.priority ? -1 : 1;
   });
