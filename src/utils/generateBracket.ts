@@ -377,6 +377,52 @@ const seedTeams = (sortedTeams: Team[], bracketSize: number): (Team | undefined)
     return { priorityConflict, sameSchoolConflict, priorityWithBye };
   };
 
+  const podConflicts = () => {
+    // pods of 4 => meet by Round 2; pods of 8 => meet by Round 3
+    const pod4Conflicts: Record<string, number> = {};
+    const pod8Conflicts: { priorities: number; schools: Record<string, number> }[] = [];
+    const podSize4 = 4;
+    const podSize8 = 8;
+    const addCount = (map: Record<string, number>, key: string) => {
+      map[key] = (map[key] || 0) + 1;
+    };
+
+    for (let i = 0; i < seeded.length; i += podSize4) {
+      const slice = seeded.slice(i, i + podSize4);
+      const schoolMap: Record<string, number> = {};
+      slice.forEach((t) => {
+        if (!t) return;
+        addCount(schoolMap, baseKey(t));
+      });
+      Object.entries(schoolMap).forEach(([k, v]) => {
+        if (v > 1) pod4Conflicts[k] = (pod4Conflicts[k] || 0) + (v - 1);
+      });
+    }
+
+    for (let i = 0; i < seeded.length; i += podSize8) {
+      const slice = seeded.slice(i, i + podSize8);
+      const schools: Record<string, number> = {};
+      let priorities = 0;
+      slice.forEach((t) => {
+        if (!t) return;
+        if (t.priority) priorities += 1;
+        addCount(schools, baseKey(t));
+      });
+      pod8Conflicts.push({ priorities, schools });
+    }
+
+    const sameSchoolPod4 = Object.values(pod4Conflicts).reduce((a, b) => a + b, 0);
+    let priorityPod8 = 0;
+    let sameSchoolPod8 = 0;
+    pod8Conflicts.forEach((pod) => {
+      if (pod.priorities > 1) priorityPod8 += pod.priorities - 1;
+      Object.values(pod.schools).forEach((v) => {
+        if (v > 1) sameSchoolPod8 += v - 1;
+      });
+    });
+    return { sameSchoolPod4, priorityPod8, sameSchoolPod8 };
+  };
+
   const totalScore = () => {
     let priorityConflicts = 0;
     let sameSchoolConflicts = 0;
@@ -387,11 +433,47 @@ const seedTeams = (sortedTeams: Team[], bracketSize: number): (Team | undefined)
       if (score.sameSchoolConflict) sameSchoolConflicts += 1;
       if (score.priorityWithBye) priorityByes += 1;
     });
-    return [priorityConflicts, sameSchoolConflicts, priorityByes] as const;
+    const podScores = podConflicts();
+    return [priorityConflicts, sameSchoolConflicts, priorityByes, podScores.sameSchoolPod4, podScores.priorityPod8] as const;
   };
 
   const tryImprovePairs = () => {
-    const [currPrio, currSame, currByes] = totalScore();
+    const [currPrio, currSame, currByes, currSchoolPod4, currPrioPod8] = totalScore();
+    // First pass: explicitly break same-school conflicts if possible without increasing priority conflicts.
+    for (let i = 0; i < pairs.length; i += 1) {
+      const [a1, b1] = pairs[i];
+      const a = seeded[a1];
+      const b = seeded[b1];
+      if (!a || !b || baseKey(a) !== baseKey(b)) continue;
+      for (let j = 0; j < pairs.length; j += 1) {
+        if (i === j) continue;
+        const [x, y] = pairs[j];
+        for (const swapIdx of [x, y]) {
+          // swap a with target
+          const tmp = seeded[swapIdx];
+          seeded[swapIdx] = a;
+          seeded[a1] = tmp;
+          const [newPrio, newSame, , newSchoolPod4, newPrioPod8] = totalScore();
+          const newPairPrio = pairScore(a1, b1).priorityConflict || pairScore(x, y).priorityConflict;
+          const improved =
+            !newPairPrio &&
+            (newSchoolPod4 < currSchoolPod4 ||
+              (newSchoolPod4 === currSchoolPod4 && newPrioPod8 < currPrioPod8) ||
+              (newSchoolPod4 === currSchoolPod4 && newPrioPod8 === currPrioPod8 && newSame < currSame) ||
+              (newSchoolPod4 === currSchoolPod4 &&
+                newPrioPod8 === currPrioPod8 &&
+                newSame === currSame &&
+                newPrio <= currPrio));
+          if (improved) {
+            return true;
+          }
+          // revert
+          seeded[a1] = a;
+          seeded[swapIdx] = tmp;
+        }
+      }
+    }
+
     for (let i = 0; i < pairs.length; i += 1) {
       const [a1, b1] = pairs[i];
       for (const idx1 of [a1, b1]) {
@@ -412,11 +494,22 @@ const seedTeams = (sortedTeams: Team[], bracketSize: number): (Team | undefined)
             seeded[idx1] = seeded[idx2];
             seeded[idx2] = tmp;
 
-            const [newPrio, newSame, newByes] = totalScore();
+            const [newPrio, newSame, newByes, newSchoolPod4, newPrioPod8] = totalScore();
             const improved =
-              newPrio < currPrio ||
-              (newPrio === currPrio && newSame < currSame) ||
-              (newPrio === currPrio && newSame === currSame && newByes < currByes);
+              newSchoolPod4 < currSchoolPod4 ||
+              (newSchoolPod4 === currSchoolPod4 && newPrioPod8 < currPrioPod8) ||
+              (newSchoolPod4 === currSchoolPod4 &&
+                newPrioPod8 === currPrioPod8 &&
+                newPrio < currPrio) ||
+              (newSchoolPod4 === currSchoolPod4 &&
+                newPrioPod8 === currPrioPod8 &&
+                newPrio === currPrio &&
+                newSame < currSame) ||
+              (newSchoolPod4 === currSchoolPod4 &&
+                newPrioPod8 === currPrioPod8 &&
+                newPrio === currPrio &&
+                newSame === currSame &&
+                newByes < currByes);
 
             if (improved) {
               return true; // keep swap
@@ -464,7 +557,7 @@ export const generateBracket = (teams: Team[]): Match[] => {
     return a.priority ? -1 : 1;
   });
 
-  // Use a full power-of-two bracket to keep pairing deterministic, then trim bye-only top rounds.
+  // Use a balanced power-of-two bracket so rounds align and connectors render correctly.
   const bracketSize = nextPowerOfTwo(sortedTeams.length);
   const seededTeams = seedTeams(sortedTeams, bracketSize);
 
