@@ -126,10 +126,13 @@ const parseBlackoutList = (raw: unknown): string[] => {
 };
 
 const normalizeRow = (row: Record<string, unknown>): Team | null => {
-  const name = String(row.Team ?? row.team ?? '').trim();
+  const baseName = String(row.Team ?? row.team ?? row['Team Name'] ?? row['School Name'] ?? '').trim();
+  const color = String(row['Team Color'] ?? '').trim();
+  const name = color ? `${baseName} (${color})` : baseName;
   if (!name) return null;
   const priority = toBoolean(row.Priority ?? row.priority);
-  const blackoutDates = parseBlackoutList(row['Blackout Dates'] ?? row.blackout ?? row.blackouts);
+  const blackoutSource = row['Blackout Dates'] ?? row.blackout ?? row.blackouts ?? row['Team Conflicts'];
+  const blackoutDates = parseBlackoutList(blackoutSource);
   const scheduledGames = parseListGeneric(row['Scheduled Games'] ?? row.scheduled ?? row.games);
   const gameWon = toBoolean(row['Game Won'] ?? row.gameWon ?? row.won);
   return {
