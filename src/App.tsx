@@ -139,6 +139,10 @@ const App = () => {
     setStatus(message || `Bracket refreshed for ${nextTeams.length} team${nextTeams.length === 1 ? '' : 's'}.`);
   };
 
+  const handleTeamsChange = (nextTeams: Team[]) => {
+    regenerateBracket(nextTeams, `Updated teams. Bracket refreshed for ${nextTeams.length} teams.`);
+  };
+
   const handleAddTeam = () => {
     const newTeam: Team = {
       id: uuid(),
@@ -297,7 +301,7 @@ const App = () => {
             {expanded.teams && (
               <TeamsPanel
                 teams={teams}
-                onTeamsChange={setTeams}
+                onTeamsChange={handleTeamsChange}
                 onAddTeam={handleAddTeam}
                 onRemoveTeam={handleRemoveTeam}
                 disabled={busy}
@@ -337,7 +341,7 @@ const App = () => {
                 description="First-round losers play for consolation standings."
                 emptyMessage="Complete all first-round winners to seed the consolation bracket."
                 title="Consolation Bracket"
-                direction="left"
+                direction="right"
               />
             )}
           </div>

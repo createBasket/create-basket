@@ -89,11 +89,41 @@ const parseListGeneric = (raw: unknown): string[] =>
     .map((entry) => entry.trim())
     .filter(Boolean);
 
-const parseBlackoutList = (raw: unknown): string[] =>
-  String(raw ?? '')
+const parseBlackoutList = (raw: unknown): string[] => {
+  const text = String(raw ?? '');
+  const result: string[] = [];
+  const currentYear = new Date().getFullYear();
+  const pad = (n: number) => (n < 10 ? `0${n}` : `${n}`);
+  const re =
+    /(?:\b(?:mon|tue|wed|thu|thur|fri|sat|sun)\b,?\s*)?(January|February|March|April|May|June|July|August|September|October|November|December)\s+(\d{1,2})(?:st|nd|rd|th)?(?:[ ,]+(\d{4}))?(?:\s+(\d{1,2}(?::\d{2})?\s*(?:am|pm))\s*[-–]\s*(\d{1,2}(?::\d{2})?\s*(?:am|pm)))?/gi;
+
+  for (const match of text.matchAll(re)) {
+    const monthName = match[1];
+    const day = Number(match[2]);
+    const year = match[3] ? Number(match[3]) : currentYear;
+    const startRaw = match[4];
+    const endRaw = match[5];
+    const monthIdx = monthIndex(monthName);
+    if (monthIdx === null || Number.isNaN(day) || Number.isNaN(year)) continue;
+    const dateStr = `${year}-${pad(monthIdx + 1)}-${pad(day)}`;
+    const start = startRaw ? parseTimeToMinutes(startRaw) : null;
+    const end = endRaw ? parseTimeToMinutes(endRaw) : null;
+    if (start !== null && end !== null && end > start) {
+      const startLabel = `${pad(Math.floor(start / 60))}:${pad(start % 60)}`;
+      const endLabel = `${pad(Math.floor(end / 60))}:${pad(end % 60)}`;
+      result.push(`${dateStr}:${startLabel}-${endLabel}`);
+    } else {
+      result.push(dateStr);
+    }
+  }
+
+  if (result.length) return result;
+
+  return text
     .split(',')
     .map((date) => normalizeBlackoutEntry(date))
     .filter((v): v is string => Boolean(v));
+};
 
 const normalizeRow = (row: Record<string, unknown>): Team | null => {
   const name = String(row.Team ?? row.team ?? '').trim();

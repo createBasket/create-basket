@@ -367,6 +367,126 @@ const seedTeams = (sortedTeams: Team[], bracketSize: number): (Team | undefined)
     // repeat until priorities without opponents are paired together
   }
 
+  const packSingles = () => {
+    let changed = false;
+    // repeatedly pair up single-team matches together to reduce TBDs
+    while (true) {
+      const singles = pairs
+        .map(([aIdx, bIdx]) => {
+          const a = seeded[aIdx];
+          const b = seeded[bIdx];
+          const filled = [aIdx, bIdx].filter((idx) => !!seeded[idx]);
+          if (filled.length === 1) return { filledIdx: filled[0], emptyIdx: filled[0] === aIdx ? bIdx : aIdx };
+          return null;
+        })
+        .filter(Boolean) as { filledIdx: number; emptyIdx: number }[];
+
+      if (singles.length < 2) break;
+      const first = singles[0];
+      const second = singles[1];
+      const teamToMove = seeded[second.filledIdx];
+      if (!teamToMove) break;
+      seeded[first.emptyIdx] = teamToMove;
+      seeded[second.filledIdx] = undefined;
+      changed = true;
+    }
+    return changed;
+  };
+
+  packSingles();
+
+  const fixRoundOneSameSchool = () => {
+    let changed = false;
+    for (let i = 0; i < pairs.length; i += 1) {
+      const [aIdx, bIdx] = pairs[i];
+      const a = seeded[aIdx];
+      const b = seeded[bIdx];
+      if (!a || !b || baseKey(a) !== baseKey(b)) continue;
+      // Try to swap one of them with a team from another pair that breaks the conflict and doesn't create a priority clash.
+      for (let j = 0; j < pairs.length; j += 1) {
+        if (i === j) continue;
+        const [xIdx, yIdx] = pairs[j];
+        for (const swapFrom of [aIdx, bIdx]) {
+          for (const swapTo of [xIdx, yIdx]) {
+            const teamFrom = seeded[swapFrom];
+            const teamTo = seeded[swapTo];
+            if (!teamFrom || !teamTo) continue;
+            const fromIsPriority = !!teamFrom.priority;
+            const toIsPriority = !!teamTo.priority;
+            // avoid creating priority vs priority in either pair
+            const pair1Other = swapFrom === aIdx ? seeded[bIdx] : seeded[aIdx];
+            const pair2Other = swapTo === xIdx ? seeded[yIdx] : seeded[xIdx];
+            if ((pair1Other?.priority && toIsPriority) || (pair2Other?.priority && fromIsPriority)) continue;
+            // avoid same school in both pairs
+            if (pair1Other && baseKey(pair1Other) === baseKey(teamTo)) continue;
+            if (pair2Other && baseKey(pair2Other) === baseKey(teamFrom)) continue;
+            // perform swap
+            seeded[swapFrom] = teamTo;
+            seeded[swapTo] = teamFrom;
+            changed = true;
+            break;
+          }
+          if (changed) break;
+        }
+        if (changed) break;
+      }
+    }
+    return changed;
+  };
+
+  while (fixRoundOneSameSchool()) {
+    // keep breaking same-school round-one matchups while possible
+  }
+
+  const pairCost = (aIdx: number, bIdx: number) => {
+    const a = seeded[aIdx];
+    const b = seeded[bIdx];
+    const byes = (!a ? 1 : 0) + (!b ? 1 : 0);
+    const priorityConflict = a?.priority && b?.priority ? 1 : 0;
+    const sameSchool = a && b && baseKey(a) === baseKey(b) ? 1 : 0;
+    return priorityConflict * 100 + sameSchool * 50 + byes * 10;
+  };
+
+  const improveRoundOneConflicts = () => {
+    let improved = false;
+    const baseCosts = pairs.map(([a, b]) => pairCost(a, b));
+    for (let i = 0; i < pairs.length; i += 1) {
+      const [a1, b1] = pairs[i];
+      for (let j = i + 1; j < pairs.length; j += 1) {
+        const [a2, b2] = pairs[j];
+        for (const idx1 of [a1, b1]) {
+          for (const idx2 of [a2, b2]) {
+            if (idx1 === idx2) continue;
+            const t1 = seeded[idx1];
+            const t2 = seeded[idx2];
+            // avoid creating priority+bye
+            if (t1?.priority && !t2) continue;
+            if (t2?.priority && !t1) continue;
+            // swap virtually
+            const tmp = seeded[idx1];
+            seeded[idx1] = seeded[idx2];
+            seeded[idx2] = tmp;
+            const newCosts = pairs.map(([a, b]) => pairCost(a, b));
+            const totalBefore = baseCosts[i] + baseCosts[j];
+            const totalAfter = newCosts[i] + newCosts[j];
+            if (totalAfter < totalBefore) {
+              improved = true;
+              return true;
+            }
+            // revert
+            seeded[idx2] = seeded[idx1];
+            seeded[idx1] = tmp;
+          }
+        }
+      }
+    }
+    return improved;
+  };
+
+  while (improveRoundOneConflicts()) {
+    // keep improving round-one conflicts (priority/same-school/byes) greedily
+  }
+
   // Optimization pass: swap teams to reduce priority-vs-priority and same-school collisions.
   const pairScore = (idxA: number, idxB: number) => {
     const a = seeded[idxA];

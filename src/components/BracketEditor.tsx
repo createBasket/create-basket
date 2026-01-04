@@ -43,7 +43,7 @@ const BracketEditor = ({
   const layout = useMemo(() => {
     if (!matches.length) return { items: [], width: 0, height: 0 };
     const firstRoundCount = matches.filter((m) => m.round === 1).length || 1;
-    const cardWidth = 220;
+    const cardWidth = 280;
     const cardHeight = compact ? 66 : 80; // ~10% taller for readability
     const verticalGap = compact ? 64 : 80;
     const step = cardHeight + verticalGap;
@@ -51,17 +51,24 @@ const BracketEditor = ({
     const colWidth = cardWidth + 32;
     const width = colWidth * roundsAsc.length;
 
-    const items = matches.map((match) => {
-      const colIndex = direction === 'right' ? match.round - 1 : maxRound - match.round;
-      const x = colIndex * colWidth;
-      const factor = Math.pow(2, match.round - 1);
-      const centerY = step * factor * (match.slot + 0.5);
-      const y = centerY - cardHeight / 2;
-      return { match, x, y, centerY, width: cardWidth, height: cardHeight };
-    });
+    const items = matches
+      .filter((m) => m.teamAId && m.teamBId) // show only real matchups; hide byes/single-team auto-advances
+      .map((match) => {
+        const colIndex = direction === 'right' ? match.round - 1 : maxRound - match.round;
+        const x = colIndex * colWidth;
+        const factor = Math.pow(2, match.round - 1);
+        const centerY = step * factor * (match.slot + 0.5);
+        const y = centerY - cardHeight / 2;
+        return { match, x, y, centerY, width: cardWidth, height: cardHeight };
+      });
 
     return { items, width, height: totalHeight };
   }, [matches, compact, roundsAsc.length, maxRound, direction]);
+
+  const visibleRoundOrder = useMemo(() => {
+    const order = Array.from(new Set(layout.items.map((i) => i.match.round))).sort((a, b) => a - b);
+    return order;
+  }, [layout.items]);
 
   const lines = useMemo(() => {
     const entries = new Map<string, (typeof layout.items)[number]>();
@@ -125,6 +132,7 @@ const BracketEditor = ({
               const labelFor = (id?: string, fallback = 'TBD') =>
                 isPass(id) ? 'Pass' : id ? teamLookup.get(id)?.name || fallback : fallback;
               const winnerLabel = match.winnerId ? labelFor(match.winnerId, 'TBD') : undefined;
+              const visibleRound = visibleRoundOrder.indexOf(match.round) + 1;
               const fromPrev = (teamId?: string) => {
                 if (!teamId) return false;
                 if (isPass(teamId)) return true;
@@ -151,7 +159,7 @@ const BracketEditor = ({
                   style={{ top: y, left: x, height, width: w }}
                 >
                   <div className="match-meta">
-                    <span className="badge subtle">Round {match.round}</span>
+                    <span className="badge subtle">Round {visibleRound}</span>
                     {winnerLabel && <span className="winner-label">Advances: {winnerLabel}</span>}
                   </div>
                   <div className="select-row">

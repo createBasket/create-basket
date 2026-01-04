@@ -88,7 +88,7 @@ const TeamsPanel = ({ teams, onTeamsChange, onAddTeam, onRemoveTeam, disabled }:
               </button>
             </div>
             <label className="status" style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-              Blackout Dates (YYYY-MM-DD comma-separated)
+              Blackout Dates (YYYY-MM-DD for all day or YYYY-MM-DD:HH:MM-HH:MM comma-separated)
               <input
                 type="text"
                 value={blackoutDraft[team.id] ?? team.blackoutDates.join(', ')}
